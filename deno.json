@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/denoland/deno/refs/heads/main/cli/schemas/config-file.v1.json",
+  "version": "0.0.1",
+  "exclude": ["index.js", "coverage/"],
+  "fmt": {
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    },
+    "plugins": ["jsr:@aireone/deno-lint-curly"]
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1.0.19"
+  },
+  "tasks": {
+    "test": "deno test -A --parallel --coverage",
+    "check": "deno check **/*.ts",
+    "build": "deno bundle ./index.ts -o ./index.js",
+    "lint": "deno lint && deno fmt --check",
+    "fix": "deno lint --fix && deno fmt"
+  }
+}
