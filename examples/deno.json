@@ -16,7 +16,7 @@
       "description": "Run textlint command",
       "command": "deno --quiet run --allow-env --allow-read --allow-sys --allow-write --allow-net textlint"
     },
-    "lint": "deno task textlint . ",
-    "fix": "deno task textlint . --fix "
+    "lint": "deno task textlint .",
+    "fix": "deno task textlint . --fix"
   }
 }
