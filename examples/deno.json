@@ -8,7 +8,7 @@
     "plugins": ["jsr:@aireone/deno-lint-curly"]
   },
   "imports": {
-    "textlint": "npm:textlint@15.7.1",
+    "textlint": "npm:textlint@15.8.0",
     "textlint-rule-no-todo": "npm:textlint-rule-no-todo@2.0.1"
   },
   "tasks": {
