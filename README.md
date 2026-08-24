@@ -4,8 +4,9 @@ YAML の指定したキーの値を抽出し、textlint のルール
 (`textlint-rule-preset-ja-technical-writing` など) を YAML の値に適用できるように
 する textlint プラグイン。
 
-deno で開発し、npm / JSR には publish せず
-[jsDelivr](https://www.jsdelivr.com/) の gh エンドポイント経由で配信する。
+deno で開発し、npm / JSR には publish しない。deno からは
+[jsDelivr](https://www.jsdelivr.com/) の gh エンドポイント経由で `index.ts` を、
+Node からは GitHub Release の asset `index.js` を使う。
 
 ## 仕組み
 
@@ -39,11 +40,11 @@ YAML の値テキストに対して働く。
 ### Node の textlint から使う
 
 Node の `require` は URL を解決できないため、jsDelivr の URL を `.textlintrc` に
-直接書くことはできない。bundle 済みの `index.js` (依存の `yaml` を同梱) を
-ローカルへ取得し、絶対パスで参照する。
+直接書くことはできない。GitHub Release の asset として配布している bundle 済みの
+`index.js` (依存の `yaml` を同梱) をローカルへ取得し、絶対パスで参照する。
 
 ```sh
-curl -sL https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.2/index.js \
+curl -fsSL https://github.com/ansanloms/textlint-plugin-yaml-keys/releases/download/0.0.2/index.js \
   -o textlint-plugin-yaml-keys.js
 ```
 
@@ -109,12 +110,27 @@ deno task build   # deno bundle で index.js を生成
 
 npm への依存は `deps/npm/yaml.ts` に集約している
 (jsDelivr 単体配信のため npm: 完全修飾で抱える)。本体コードは相対 import で参照する。
+`deno.json` の `imports` にも同じ `npm:yaml@x.y.z` を併記しており、これは
+Dependabot に更新を検知させるためで、両者の版は CI で突合している。Dependabot の
+PR が来たら `deps/npm/yaml.ts` も手で合わせる。
 
-`index.js` は `index.ts` から `deno bundle` で生成した配信用成果物 (`yaml` 同梱)。
-`index.ts` を変更したら `deno task build` で再生成する。
+`index.js` は git 管理せず、Release 公開時に GitHub Actions が
+`deno task build` で生成して asset として添付する。ローカルで `examples/` を
+動かすときは先に `deno task build` を実行する。
 
 > [!NOTE]
 > `deno bundle` は現状 experimental (`subject to changes` の警告が出る)。
+
+### リリース手順
+
+1. `deno.json` の `version` を更新してコミットする。
+2. 同じ値でタグを打って push する。
+3. `gh release create <tag> --verify-tag --generate-notes` で Release を公開すると
+   `release.yml` が `index.js` を添付する。
+
+既存のタグに後から Release を作る場合は、Release 作成後に
+`gh workflow run release.yml --ref main -f tag=<tag>` で asset を添付する
+(タグ時点にワークフローファイルが無いため `release` イベントでは起動しない)。
 
 ## ライセンス
 
