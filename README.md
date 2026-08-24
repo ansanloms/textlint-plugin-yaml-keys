@@ -4,9 +4,8 @@ YAML の指定したキーの値を抽出し、textlint のルール
 (`textlint-rule-preset-ja-technical-writing` など) を YAML の値に適用できるように
 する textlint プラグイン。
 
-deno で開発し、npm / JSR には publish しない。deno からは
-[jsDelivr](https://www.jsdelivr.com/) の gh エンドポイント経由で `index.ts` を、
-Node からは GitHub Release の asset `index.js` を使う。
+deno で開発し、npm / JSR には publish しない。bundle 済みの `index.js`
+(依存の `yaml` を同梱) を GitHub Release の asset として配布する。
 
 ## 仕組み
 
@@ -39,9 +38,7 @@ YAML の値テキストに対して働く。
 
 ### Node の textlint から使う
 
-Node の `require` は URL を解決できないため、jsDelivr の URL を `.textlintrc` に
-直接書くことはできない。GitHub Release の asset として配布している bundle 済みの
-`index.js` (依存の `yaml` を同梱) をローカルへ取得し、絶対パスで参照する。
+Release asset の `index.js` をローカルへ取得し、絶対パスで参照する。
 
 ```sh
 curl -fsSL https://github.com/ansanloms/textlint-plugin-yaml-keys/releases/download/0.0.2/index.js \
@@ -72,11 +69,16 @@ module.exports = {
 
 ### deno の `@textlint/kernel` から使う
 
-deno は URL import を解決できるため、jsDelivr の URL から直接読み込める。
+Release asset の `index.js` をローカルへ取得し、相対 import する。
+
+```sh
+curl -fsSL https://github.com/ansanloms/textlint-plugin-yaml-keys/releases/download/0.0.2/index.js \
+  -o textlint-plugin-yaml-keys.js
+```
 
 ```ts
 import { TextlintKernel } from "npm:@textlint/kernel";
-import plugin from "https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.2/index.ts";
+import plugin from "./textlint-plugin-yaml-keys.js";
 
 const kernel = new TextlintKernel();
 const result = await kernel.lintText("description: hello world\n", {
@@ -94,10 +96,6 @@ const result = await kernel.lintText("description: hello world\n", {
 });
 ```
 
-> [!NOTE]
-> jsDelivr の gh エンドポイントはタグ固定 (`@0.0.2` など) を推奨する。
-> `@main` などのブランチ参照は最大 12 時間 CDN にキャッシュされる。
-
 ## 開発
 
 ```sh
@@ -108,11 +106,8 @@ deno task fix     # deno lint --fix && deno fmt
 deno task build   # deno bundle で index.js を生成
 ```
 
-npm への依存は `deps/npm/yaml.ts` に集約している
-(jsDelivr 単体配信のため npm: 完全修飾で抱える)。本体コードは相対 import で参照する。
-`deno.json` の `imports` にも同じ `npm:yaml@x.y.z` を併記しており、これは
-Dependabot に更新を検知させるためで、両者の版は CI で突合している。Dependabot の
-PR が来たら `deps/npm/yaml.ts` も手で合わせる。
+外部依存は `deno.json` の `imports` で管理する。Dependabot が `deno.json` と
+`deno.lock` を更新する。
 
 `index.js` は git 管理せず、Release 公開時に GitHub Actions が
 `deno task build` で生成して asset として添付する。ローカルで `examples/` を

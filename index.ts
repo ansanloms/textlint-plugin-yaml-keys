@@ -1,11 +1,5 @@
-import {
-  isMap,
-  isScalar,
-  isSeq,
-  LineCounter,
-  parseDocument,
-} from "./deps/npm/yaml.ts";
-import type { Node, Pair } from "./deps/npm/yaml.ts";
+import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
+import type { Node, Pair } from "yaml";
 
 type SegmentMatcher =
   | { type: "key"; name: string }
