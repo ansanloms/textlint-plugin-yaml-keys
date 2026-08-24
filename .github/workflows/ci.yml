@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+          cache: true
+      - run: deno ci
+      - run: deno task lint
+      - run: deno task check
+      - run: deno task test
+      - run: deno task build
+      - name: Check yaml version consistency
+        run: |
+          manifest=$(grep -oE 'npm:yaml@[^"'"'"'[:space:]]+' deno.json | sort -u)
+          source=$(grep -oE 'npm:yaml@[^"'"'"'[:space:]]+' deps/npm/yaml.ts | sort -u)
+          echo "deno.json: ${manifest}"
+          echo "deps/npm/yaml.ts: ${source}"
+          test -n "${manifest}" && test "${manifest}" = "${source}"
+      - name: Forbid bare "yaml" specifier in sources
+        run: |
+          if git ls-files '*.ts' | xargs grep -nE 'from[[:space:]]+["'"'"']yaml["'"'"']|import\([[:space:]]*["'"'"']yaml["'"'"'][[:space:]]*\)'; then
+            echo 'Use deps/npm/yaml.ts (npm: fully qualified) instead of the bare "yaml" specifier.' >&2
+            exit 1
+          fi
+      - name: Smoke test with examples
+        working-directory: examples
+        run: |
+          deno ci
+          deno task textlint . -f json > result.json || true
+          jq -e '[.[] | select(.filePath | endswith("file.yaml")) | .messages | length] | add == 2' result.json
+      - name: Verify lockfiles are unchanged
+        run: git diff --exit-code deno.lock examples/deno.lock
