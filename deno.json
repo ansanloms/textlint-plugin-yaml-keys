@@ -9,10 +9,11 @@
     "rules": {
       "tags": ["recommended"]
     },
-    "plugins": ["jsr:@aireone/deno-lint-curly"]
+    "plugins": ["jsr:@aireone/deno-lint-curly@0.2.0"]
   },
   "imports": {
-    "@std/assert": "jsr:@std/assert@1.0.19"
+    "@std/assert": "jsr:@std/assert@1.0.19",
+    "yaml": "npm:yaml@2.9.0"
   },
   "tasks": {
     "test": "deno test -A --parallel --coverage",
