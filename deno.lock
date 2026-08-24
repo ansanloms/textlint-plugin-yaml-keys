@@ -1,7 +1,7 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@aireone/deno-lint-curly@*": "0.2.0",
+    "jsr:@aireone/deno-lint-curly@0.2.0": "0.2.0",
     "jsr:@std/assert@1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:yaml@2.9.0": "2.9.0"
@@ -28,7 +28,8 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/assert@1.0.19"
+      "jsr:@std/assert@1.0.19",
+      "npm:yaml@2.9.0"
     ]
   }
 }
