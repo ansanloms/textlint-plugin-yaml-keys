@@ -71,28 +71,12 @@ module.exports = {
 };
 ```
 
-### deno の `@textlint/kernel` から使う
+### deno から使う
 
-deno は URL import を解決できるため、jsDelivr の URL から直接読み込める。
+deno は URL import を解決できるため、jsDelivr の URL から直接 import できる。
 
 ```ts
-import { TextlintKernel } from "npm:@textlint/kernel";
 import plugin from "https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.4/dist/index.js";
-
-const kernel = new TextlintKernel();
-const result = await kernel.lintText("description: hello world\n", {
-  ext: ".yaml",
-  plugins: [
-    {
-      pluginId: "yaml-keys",
-      plugin,
-      options: { keys: ["description"] },
-    },
-  ],
-  rules: [
-    // 任意の textlint ルール
-  ],
-});
 ```
 
 > [!NOTE]
