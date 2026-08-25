@@ -113,9 +113,12 @@ deno task build   # deno bundle で dist/index.js を生成
 外部依存は `deno.json` の `imports` で管理する。Dependabot が `deno.json` と
 `deno.lock` を更新する。
 
-`dist/index.js` は `index.ts` から `deno bundle --platform=browser` で生成した
-配信用成果物 (`yaml` 同梱)。browser platform で bundle するのは `node:` 依存の
-shim を含めず、https 経由で deno から import できるようにするため。`index.ts`
+`dist/index.js` は `index.ts` から `deno bundle --platform=browser --minify` で
+生成した配信用成果物 (`yaml` 同梱)。browser platform で bundle するのは `node:`
+依存の shim を含めず、https 経由で deno から import できるようにするため。
+`--minify` を付けるのはサイズ削減に加え、非 minify 出力ではバンドラがモジュール境界の
+ラベルとしてビルドマシンの deno キャッシュへのパスを埋め込むのに対し、minify 出力では
+そのラベル自体が生成されず、マシン依存のパスが成果物に混入しないため。`index.ts`
 を変更したら `deno task build` で再生成してコミットする。CI がコミット済みの
 `dist/index.js` とソースの一致を検査する。
 

@@ -18,7 +18,7 @@
   "tasks": {
     "test": "deno test -A --parallel --coverage",
     "check": "deno check **/*.ts",
-    "build": "deno bundle --platform=browser ./index.ts -o ./dist/index.js && deno run --allow-read=dist/index.js --allow-write=dist/index.js scripts/strip-cache-paths.ts",
+    "build": "deno bundle --platform=browser --minify ./index.ts -o ./dist/index.js",
     "lint": "deno lint && deno fmt --check",
     "fix": "deno lint --fix && deno fmt"
   }
