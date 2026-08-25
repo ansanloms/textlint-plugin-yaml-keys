@@ -12,13 +12,15 @@ jobs:
       - uses: actions/checkout@v7
       - uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          deno-version: 2.9.4
           cache: true
       - run: deno ci
       - run: deno task lint
       - run: deno task check
       - run: deno task test
       - run: deno task build
+      - name: Verify dist/index.js is up to date
+        run: git diff --exit-code dist/index.js
       - name: Smoke test with examples
         working-directory: examples
         run: |
