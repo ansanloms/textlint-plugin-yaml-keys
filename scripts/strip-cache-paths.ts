@@ -1,4 +1,4 @@
-// deno bundle が出力する index.js には、ビルドマシンの deno キャッシュへの
+// deno bundle が出力する dist/index.js には、ビルドマシンの deno キャッシュへの
 // 相対パス (例: ../../../../.cache/deno/npm/registry.npmjs.org/yaml/2.9.0/...) が
 // コメントおよび __commonJS のキーとして多数埋め込まれる。
 //
@@ -9,7 +9,7 @@
 // マシン依存かつ非再現的なパス漏洩を防ぐため、ビルド後にこれらのラベルを
 // 中立な連番 (module_0, module_1, ...) へ置換する。
 
-const target = new URL("../index.js", import.meta.url);
+const target = new URL("../dist/index.js", import.meta.url);
 const original = Deno.readTextFileSync(target);
 
 // (../)+ .cache/deno/ で始まるモジュールパスのトークン。
