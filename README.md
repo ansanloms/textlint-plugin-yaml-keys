@@ -45,7 +45,7 @@ Node の `require` は URL を解決できないため、jsDelivr の URL を `.
 (require(esm) 対応の) バージョンが必要になる。
 
 ```sh
-curl -fsSL https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.3/dist/index.js \
+curl -fsSL https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.4/dist/index.js \
   -o textlint-plugin-yaml-keys.js
 ```
 
@@ -77,7 +77,7 @@ deno は URL import を解決できるため、jsDelivr の URL から直接読�
 
 ```ts
 import { TextlintKernel } from "npm:@textlint/kernel";
-import plugin from "https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.3/dist/index.js";
+import plugin from "https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.4/dist/index.js";
 
 const kernel = new TextlintKernel();
 const result = await kernel.lintText("description: hello world\n", {
