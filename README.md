@@ -4,9 +4,7 @@ YAML の指定したキーの値を抽出し、textlint のルール
 (`textlint-rule-preset-ja-technical-writing` など) を YAML の値に適用できるように
 する textlint プラグイン。
 
-deno で開発し、npm / JSR には publish しない。bundle 済みの `dist/index.js`
-(依存の `yaml` を同梱) を git にコミットし、[jsDelivr](https://www.jsdelivr.com/)
-の gh エンドポイント経由で配信する。
+npm には publish せず、GitHub のタグを git 依存で参照する。
 
 ## 仕組み
 
@@ -37,31 +35,18 @@ YAML の値テキストに対して働く。
 
 ## 利用
 
-### Node の textlint から使う
-
-Node の `require` は URL を解決できないため、jsDelivr の URL を `.textlintrc`
-に直接書くことはできない。`dist/index.js` をローカルへ取得し、絶対パスで参照する。
-`dist/index.js` は ESM なので、Node 側は `require` で ESM を読み込める
-(require(esm) 対応の) バージョンが必要になる。
+インストール (タグ固定を推奨する):
 
 ```sh
-curl -fsSL https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.4/dist/index.js \
-  -o textlint-plugin-yaml-keys.js
+npm install -D github:ansanloms/textlint-plugin-yaml-keys#0.1.0
 ```
 
 `.textlintrc.js`:
 
 ```js
-const path = require("node:path");
-
-// pluginId が npm package 名でないため "textlint-plugin-<id>" の解決には失敗するが、
-// その後段で textlint module-resolver が require.resolve(<id>) を試すため、
-// 絶対パスを渡せばローカル plugin として読み込まれる。
-const yamlKeysPlugin = path.join(__dirname, "textlint-plugin-yaml-keys.js");
-
 module.exports = {
   plugins: {
-    [yamlKeysPlugin]: {
+    "@ansanloms/textlint-plugin-yaml-keys": {
       keys: ["description"],
     },
   },
@@ -71,55 +56,43 @@ module.exports = {
 };
 ```
 
-### deno から使う
-
-deno は URL import を解決できるため、jsDelivr の URL から直接 import できる。
-
-```ts
-import plugin from "https://cdn.jsdelivr.net/gh/ansanloms/textlint-plugin-yaml-keys@0.0.4/dist/index.js";
-```
-
 > [!NOTE]
-> jsDelivr の gh エンドポイントはタグ固定 (`@0.0.3` など) を推奨する。
-> `@main` などのブランチ参照は最大 12 時間 CDN にキャッシュされる。
-> `dist/index.js` は `0.0.3` 以降のタグにのみ存在する。
+> 配布物は ESM。textlint v13 以降が ESM の plugin を読める。
 
 ## 開発
 
 ```sh
-deno task test    # テスト (coverage 付き)
-deno task check   # 型チェック
-deno task lint    # deno lint && deno fmt --check
-deno task fix     # deno lint --fix && deno fmt
-deno task build   # deno bundle で dist/index.js を生成
+npm ci            # 依存のインストール
+npm test          # テスト
+npm run check     # 型チェック
+npm run lint      # oxlint && oxfmt --check
+npm run fix       # oxlint --fix && oxfmt
+npm run compile   # tsc で dist/ を生成
 ```
 
-外部依存は `deno.json` の `imports` で管理する。Dependabot が `deno.json` と
-`deno.lock` を更新する。
+`dist/` は tsc の出力で、git にコミットして配布する。`index.ts` を変更したら
+`npm run compile` を実行してコミットする。CI がコミット済みの `dist/` とソースの一致を
+検査する。`yaml` は同梱していないため、その更新で `dist/` は変わらない。`typescript` の
+更新では出力が変わることがあり、その Dependabot PR で dist の鮮度検査が落ちたら PR
+ブランチで `npm run compile` を実行して `dist/` をコミットする。
 
-`dist/index.js` は `index.ts` から `deno bundle --platform=browser --minify` で
-生成した配信用成果物 (`yaml` 同梱)。browser platform で bundle するのは `node:`
-依存の shim を含めず、https 経由で deno から import できるようにするため。
-`--minify` を付けるのはサイズ削減に加え、非 minify 出力ではバンドラがモジュール境界の
-ラベルとしてビルドマシンの deno キャッシュへのパスを埋め込むのに対し、minify 出力では
-そのラベル自体が生成されず、マシン依存のパスが成果物に混入しないため。`index.ts`
-を変更したら `deno task build` で再生成してコミットする。CI がコミット済みの
-`dist/index.js` とソースの一致を検査する。
+依存は正確な版で固定し (`.npmrc` の `save-exact`)、更新は Dependabot の PR で取り込む。
+`ignore-scripts` で install 時に依存の lifecycle script を実行しない (`npm run` の本体 script には影響しない)。`min-release-age` で公開から 7 日未満の版を新規に解決しない (lockfile に固定済みの版には効かない)。
 
-依存の更新でも bundle の内容は変わるため、Dependabot の PR はこの検査で失敗する。
-その場合は PR のブランチで `deno task build` を実行し、`dist/index.js` をコミットして
-push する。`deno bundle` の出力は Deno のバージョンで変わりうるので、再生成には
-CI と同じ Deno (`.github/workflows/ci.yml` の `deno-version`) を使う。
+Node 24 は開発環境の要件 (`.node-version`) で、配布物は素の ESM なので利用側に Node 24 を要求しない。
 
-> [!NOTE]
-> `deno bundle` は現状 experimental (`subject to changes` の警告が出る)。
+examples は `file:..` でこの repo を symlink 参照し、`yaml` をルートの `node_modules`
+から解決する。examples を動かす前にルートで `npm ci` を実行する。
+
+`package.json` の scripts に `build` / `prepare` 等を置かない。npm は git 依存の
+install 時にこれらがあると依存側でビルドを走らせるため。
 
 ### リリース手順
 
-1. `deno.json` の `version` を更新し `deno task build` で `dist/index.js` を
-   再生成してコミットする。
-2. 同じ値でタグを打って push する。GitHub Release は作らない
-   (jsDelivr は git のタグを参照する)。
+1. `npm version <version> --no-git-tag-version` で `package.json` と
+   `package-lock.json` を更新し、`cd examples && npm install` で
+   `examples/package-lock.json` も更新し、`npm run compile` して全部コミットする。
+2. 同じ値でタグを打って push する。GitHub Release は作らない。
 
 ## ライセンス
 

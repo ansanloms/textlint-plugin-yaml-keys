@@ -1,0 +1,43 @@
+{
+  "name": "@ansanloms/textlint-plugin-yaml-keys",
+  "version": "0.1.0",
+  "description": "textlint plugin that lints the values of specified YAML keys",
+  "keywords": [
+    "textlint",
+    "textlintplugin",
+    "yaml"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ansanloms/textlint-plugin-yaml-keys.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "test": "node --test '*.test.ts'",
+    "lint": "oxlint && oxfmt --check",
+    "fix": "oxlint --fix && oxfmt"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0",
+    "typescript": "7.0.2"
+  }
+}

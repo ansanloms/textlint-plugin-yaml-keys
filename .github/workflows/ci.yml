@@ -5,27 +5,63 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v7
         with:
-          deno-version: 2.9.4
-          cache: true
-      - run: deno ci
-      - run: deno task lint
-      - run: deno task check
-      - run: deno task test
-      - run: deno task build
-      - name: Verify dist/index.js is up to date
-        run: git diff --exit-code dist/index.js
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+      - run: npm test
+      - run: npm run compile
+      - name: Refresh lockfiles
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          npm --prefix examples install --package-lock-only --ignore-scripts
       - name: Smoke test with examples
         working-directory: examples
         run: |
-          deno ci
-          deno task textlint . -f json > result.json || true
+          npm ci
+          set +e
+          npx textlint . -f json > result.json
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+            echo "textlint exited with $rc"
+            cat result.json
+            exit "$rc"
+          fi
           jq -e '[.[] | select(.filePath | endswith("file.yaml")) | .messages | length] | add == 2' result.json
-      - name: Verify lockfiles are unchanged
-        run: git diff --exit-code deno.lock examples/deno.lock
+          rm -f result.json
+      - name: Smoke test with packed tarball
+        run: |
+          tgz=$(npm pack --pack-destination "$RUNNER_TEMP" | tail -n 1)
+          cd examples
+          npm install --no-save "$RUNNER_TEMP/$tgz"
+          set +e
+          npx textlint . -f json > result.json
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+            echo "textlint exited with $rc"
+            cat result.json
+            exit "$rc"
+          fi
+          jq -e '[.[] | select(.filePath | endswith("file.yaml")) | .messages | length] | add == 2' result.json
+          rm -f result.json
+      - name: Verify working tree is clean
+        run: |
+          git status --porcelain
+          test -z "$(git status --porcelain)"
