@@ -1,10 +1,7 @@
 import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
 import type { Node, Pair } from "yaml";
 
-type SegmentMatcher =
-  | { type: "key"; name: string }
-  | { type: "anyKey" }
-  | { type: "arrayItem" };
+type SegmentMatcher = { type: "key"; name: string } | { type: "anyKey" } | { type: "arrayItem" };
 
 interface KeyMatcher {
   segments: SegmentMatcher[];
@@ -53,10 +50,7 @@ const parseKeyPath = (pathStr: string): KeyMatcher => {
   return { segments, recursive, pathString: pathStr };
 };
 
-const matchesAt = (
-  matcher: KeyMatcher,
-  currentPath: string[],
-): boolean => {
+const matchesAt = (matcher: KeyMatcher, currentPath: string[]): boolean => {
   if (matcher.recursive) {
     if (matcher.segments.length !== 1) {
       return false;
@@ -65,8 +59,7 @@ const matchesAt = (
     if (seg.type !== "key") {
       return false;
     }
-    return currentPath.length > 0 &&
-      currentPath[currentPath.length - 1] === seg.name;
+    return currentPath.length > 0 && currentPath[currentPath.length - 1] === seg.name;
   }
   if (currentPath.length !== matcher.segments.length) {
     return false;
@@ -107,20 +100,17 @@ const walk = (
   if (isMap(node)) {
     for (const pair of node.items as Pair[]) {
       const keyNode = pair.key as { value?: unknown; toString?: () => string };
-      const keyName = keyNode && keyNode.value !== undefined
-        ? String(keyNode.value)
-        : (keyNode && typeof keyNode.toString === "function"
-          ? keyNode.toString()
-          : "");
+      const keyName =
+        keyNode && keyNode.value !== undefined
+          ? String(keyNode.value)
+          : keyNode && typeof keyNode.toString === "function"
+            ? keyNode.toString()
+            : "";
       const valueNode = pair.value as Node | null;
       const newPath = [...currentPath, keyName];
       for (const m of matchers) {
         if (matchesAt(m, newPath)) {
-          if (
-            isScalar(valueNode) &&
-            typeof valueNode.value === "string" &&
-            valueNode.range
-          ) {
+          if (isScalar(valueNode) && typeof valueNode.value === "string" && valueNode.range) {
             // textlint fix の絶対 range は Str.range[0] + 相対 index で計算される。
             // AST に渡す value と source.slice(range) が一致していないと、
             // 置換が源文上の誤位置にマップされ yaml 構造を壊す。
@@ -131,17 +121,12 @@ const walk = (
             // - escape を含む quoted scalar 等の不一致ケース: 安全のため除外。
             let collectedValue: string | null = null;
             let collectedRange: [number, number] | null = null;
-            const sourceSlice = source.slice(
-              valueNode.range[0],
-              valueNode.range[1],
-            );
+            const sourceSlice = source.slice(valueNode.range[0], valueNode.range[1]);
             if (sourceSlice === valueNode.value) {
               collectedValue = valueNode.value;
               collectedRange = [valueNode.range[0], valueNode.range[1]];
             } else {
-              const srcToken =
-                (valueNode as unknown as { srcToken?: BlockScalarToken })
-                  .srcToken;
+              const srcToken = (valueNode as unknown as { srcToken?: BlockScalarToken }).srcToken;
               if (
                 srcToken &&
                 srcToken.type === "block-scalar" &&
@@ -182,14 +167,7 @@ const walk = (
     }
   } else if (isSeq(node)) {
     for (const item of node.items as Node[]) {
-      walk(
-        item,
-        [...currentPath, "[]"],
-        matchers,
-        lineCounter,
-        collected,
-        source,
-      );
+      walk(item, [...currentPath, "[]"], matchers, lineCounter, collected, source);
     }
   }
 };
@@ -216,27 +194,22 @@ class YamlKeysProcessor {
         });
         const collected: CollectedItem[] = [];
         if (doc.contents) {
-          walk(
-            doc.contents as Node,
-            [],
-            matchers,
-            lineCounter,
-            collected,
-            text,
-          );
+          walk(doc.contents as Node, [], matchers, lineCounter, collected, text);
         }
         const lastPos = lineCounter.linePos(text.length);
         return {
           type: "Document",
           children: collected.map((item) => ({
             type: "Paragraph",
-            children: [{
-              type: "Str",
-              value: item.value,
-              raw: item.value,
-              range: item.range,
-              loc: item.loc,
-            }],
+            children: [
+              {
+                type: "Str",
+                value: item.value,
+                raw: item.value,
+                range: item.range,
+                loc: item.loc,
+              },
+            ],
             raw: item.value,
             range: item.range,
             loc: item.loc,
