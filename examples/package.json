@@ -7,7 +7,7 @@
   },
   "devDependencies": {
     "@ansanloms/textlint-plugin-yaml-keys": "file:..",
-    "textlint": "^15.8.0",
-    "textlint-rule-no-todo": "^2.0.1"
+    "textlint": "15.8.0",
+    "textlint-rule-no-todo": "2.0.1"
   }
 }

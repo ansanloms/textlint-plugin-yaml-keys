@@ -76,6 +76,8 @@ npm run compile   # tsc で dist/ を生成
 更新では出力が変わることがあり、その Dependabot PR で dist の鮮度検査が落ちたら PR
 ブランチで `npm run compile` を実行して `dist/` をコミットする。
 
+依存は正確な版で固定し (`.npmrc` の `save-exact`)、更新は Dependabot の PR で取り込む。
+
 Node 24 は開発環境の要件 (`.node-version`) で、配布物は素の ESM なので利用側に Node 24 を要求しない。
 
 examples は `file:..` でこの repo を symlink 参照し、`yaml` をルートの `node_modules`
