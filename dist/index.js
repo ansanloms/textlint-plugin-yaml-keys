@@ -114,8 +114,8 @@ const walk = (node, currentPath, matchers, lineCounter, collected, source) => {
                                 value: collectedValue,
                                 range: collectedRange,
                                 loc: {
-                                    start: { line: start.line, column: start.col },
-                                    end: { line: end.line, column: end.col },
+                                    start: { line: start.line, column: start.col - 1 },
+                                    end: { line: end.line, column: end.col - 1 },
                                 },
                             });
                         }
@@ -175,8 +175,8 @@ class YamlKeysProcessor {
                     raw: text,
                     range: [0, text.length],
                     loc: {
-                        start: { line: 1, column: 1 },
-                        end: { line: lastPos.line, column: lastPos.col },
+                        start: { line: 1, column: 0 },
+                        end: { line: lastPos.line, column: lastPos.col - 1 },
                     },
                 };
             },
