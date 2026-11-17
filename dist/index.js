@@ -30,7 +30,7 @@ const atLineStart = (source, offset) => {
 // 源文の [start, end) を行ごとの Str に分割する。
 // 各 Str の range は行頭の空白・タブと行末の "\r" を除いた区間で、空行は捨てる。
 // - 行頭の空白: range に含めると、jtf-style 等の fix が行頭の空白を消して yaml を壊す。
-// - markdown 指定時 (markdown = true) は、行頭で始まる区間だけ行頭の空白と引用の ">" を除く。
+// - markdown 有効時 (markdown = true) は、行頭で始まる区間だけ行頭の空白と引用の ">" を除く。
 //   対象は Str 内の改行の直後で始まる行 (継続行) と、源文上で行頭から区間の開始までが
 //   空白・タブ・">" だけの先頭区間 (hard break の次の行など)。
 //   継続行の ">" は Str の range に含まれて返るため、除かないと fix が引用を壊す。
@@ -38,7 +38,7 @@ const atLineStart = (source, offset) => {
 //   Str に残すためそのまま採る。
 // - 行末の "\r": CRLF の行終端なので含めない。含めると行末への fix が \r と \n の間に入り、
 //   行構造を壊す。空行判定でも空白として扱う。
-const createLineStrs = (start, end, lineCounter, source, markdown = false) => {
+const createLineStrs = (start, end, lineCounter, source, markdown) => {
     const strs = [];
     let lineStart = start;
     let first = true;
@@ -282,7 +282,7 @@ const walk = (node, currentPath, matchers, lineCounter, collected, source) => {
                                 while (body.endsWith("\n") || body.endsWith("\r")) {
                                     body = body.slice(0, -1);
                                 }
-                                strs = createLineStrs(bodyStart, bodyStart + body.length, lineCounter, source);
+                                strs = createLineStrs(bodyStart, bodyStart + body.length, lineCounter, source, false);
                                 md = createBlockMarkdownSource(srcToken, bodyStart, body);
                             }
                         }
@@ -308,7 +308,7 @@ class YamlKeysProcessor {
     markdown;
     constructor(options = {}) {
         this.keys = options.keys ?? [];
-        this.markdown = options.markdown ?? false;
+        this.markdown = options.markdown ?? true;
     }
     availableExtensions() {
         return [".yaml", ".yml"];

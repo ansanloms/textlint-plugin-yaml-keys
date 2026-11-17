@@ -22,7 +22,7 @@ interface Ast {
 }
 
 function preProcess(text: string, keys?: string[]): Ast {
-  const p = new Processor(keys ? { keys } : {});
+  const p = new Processor(keys ? { keys, markdown: false } : { markdown: false });
   return p.processor(".yaml").preProcess(text) as unknown as Ast;
 }
 
@@ -252,15 +252,25 @@ function assertStrInvariants(text: string, ast: MdNode): void {
   }
 }
 
-test("markdown 未指定・false は指定なしと同じ AST", () => {
+test("markdown 未指定は markdown: true と同じ AST", () => {
   const text = "description: |-\n  a `b`\n  c\n";
   const base = new Processor({ keys: ["description"] }).processor(".yaml").preProcess(text);
-  const off = new Processor({ keys: ["description"], markdown: false })
+  const on = new Processor({ keys: ["description"], markdown: true })
     .processor(".yaml")
     .preProcess(text);
-  assert.deepEqual(off, base);
-  assert.equal((base as unknown as MdNode).children?.[0].type, "Paragraph");
-  assert.equal(collectNodes(base as unknown as MdNode, "Code").length, 0);
+  assert.deepEqual(base, on);
+  assert.equal(collectNodes(base as unknown as MdNode, "Code").length, 1);
+});
+
+test("markdown: false は inline code を分けず、バッククォートを含む 1 つの Str になる", () => {
+  const text = "description: 注文は `GET /orders/{id}` で取得する。\n";
+  const ast = new Processor({ keys: ["description"], markdown: false })
+    .processor(".yaml")
+    .preProcess(text) as unknown as MdNode;
+  const strs = collectNodes(ast, "Str");
+  assert.equal(strs.length, 1);
+  assert.equal(strs[0].value, "注文は `GET /orders/{id}` で取得する。");
+  assert.equal(collectNodes(ast, "Code").length, 0);
 });
 
 test("markdown: インライン code は Str / Code / Str に分かれ、range が源文と一致する", () => {
