@@ -10,7 +10,7 @@ npm には publish せず、GitHub のタグを git 依存で参照する。
 
 textlint の `Processor` プラグインとして動作する。`preProcess` で YAML をパースし、
 指定キーにマッチするスカラ値を `Str` ノードとして持つ AST
-(`Document > Paragraph > Str`) を組み立てる。これにより textlint の各ルールが
+(`Document > Paragraph > Str`。`markdown` オプションを使う場合は Markdown の AST) を組み立てる。これにより textlint の各ルールが
 YAML の値テキストに対して働く。
 
 対応拡張子は `.yaml` / `.yml`。
@@ -33,6 +33,28 @@ YAML の値テキストに対して働く。
     末尾改行は含めない。textlint の fix が行頭の空白を消して YAML を壊さない
     ようにするため。
 - quoted scalar (`"..."`): fix の安全性を保証できないため除外する。
+
+## `markdown` オプション
+
+`true` にすると、抽出した値を Markdown として解釈して AST を組み立てる (既定は `false`)。
+指定しない場合の AST は従来と変わらない。
+
+- インラインコードとコードブロックは、`.md` と同じくチェック対象から外れる。
+- コードの前後のスペースを見るルール (`ja-space-around-code` など) が適用されるようになる。
+- `1. foo` のような値はリストとして解釈される。引用 (`>`) やリストのマーカーは Str に含めない。
+- block scalar のインデントは除いて解釈する。Str の range は従来どおり源文上の位置を指す。
+- Markdown のパースには `@textlint/markdown-to-ast` を使う。版は textlint の版に合わせる。
+
+```js
+module.exports = {
+  plugins: {
+    "@ansanloms/textlint-plugin-yaml-keys": {
+      keys: ["description"],
+      markdown: true,
+    },
+  },
+};
+```
 
 ## 利用
 
