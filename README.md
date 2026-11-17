@@ -29,8 +29,9 @@ YAML の値テキストに対して働く。
 ### 抽出対象のスカラ
 
 - plain scalar / block scalar (`|-` など): 抽出する。
-  - block scalar は textlint の fix が源文座標を壊さないよう、生ソースを
-    インデント込み・末尾改行除外で採取する。
+  - block scalar は行ごとに別の Str ノードへ分割する。Str にインデントと
+    末尾改行は含めない。textlint の fix が行頭の空白を消して YAML を壊さない
+    ようにするため。
 - quoted scalar (`"..."`): fix の安全性を保証できないため除外する。
 
 ## 利用
