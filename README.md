@@ -67,7 +67,8 @@ npm test          # テスト
 npm run check     # 型チェック
 npm run lint      # oxlint && oxfmt --check
 npm run fix       # oxlint --fix && oxfmt
-npm run compile   # tsc で dist/ を生成
+npm run clean     # dist/ を削除
+npm run compile   # clean の後に tsc で dist/ を生成し直す
 ```
 
 `dist/` は tsc の出力で、git にコミットして配布する。`index.ts` を変更したら

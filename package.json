@@ -26,7 +26,8 @@
     }
   },
   "scripts": {
-    "compile": "tsc",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "compile": "npm run clean && tsc",
     "check": "tsc --noEmit",
     "test": "node --test '*.test.ts'",
     "lint": "oxlint && oxfmt --check",
