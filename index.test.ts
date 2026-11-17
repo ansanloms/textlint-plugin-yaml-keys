@@ -17,6 +17,10 @@ interface Str {
 interface Ast {
   type: string;
   range: [number, number];
+  loc: {
+    start: { line: number; column: number };
+    end: { line: number; column: number };
+  };
   children: Array<{ type: string; children: Str[] }>;
 }
 
@@ -86,9 +90,28 @@ test("quoted scalar は安全のため除外する", () => {
   assert.deepEqual(values('description: "hello"\n', ["description"]), []);
 });
 
-test("loc は 1 始まりの行を持つ", () => {
+test("loc は 1 始まりの行と 0 始まりの列を持つ", () => {
   const text = "a: x\ndescription: hello\n";
-  assert.deepEqual(items(text, ["description"])[0].loc.start.line, 2);
+  const loc = items(text, ["description"])[0].loc;
+  assert.deepEqual(loc.start, { line: 2, column: 13 });
+  assert.deepEqual(loc.end, { line: 2, column: 18 });
+});
+
+test("1 行目の値の loc も 0 始まりの列を持つ", () => {
+  const loc = items("description: hello\n", ["description"])[0].loc;
+  assert.deepEqual(loc.start, { line: 1, column: 13 });
+  assert.deepEqual(loc.end, { line: 1, column: 18 });
+});
+
+test("block scalar の loc も 0 始まりの列を持つ", () => {
+  const item = items("description: |-\n  line one\n  line two\n", ["description"])[0];
+  assert.deepEqual(item.loc.start, { line: 2, column: 0 });
+  assert.deepEqual(item.loc.end, { line: 3, column: 10 });
+});
+
+test("AST ルート Document の loc は列 0 から始まる", () => {
+  const ast = preProcess("description: hi\n", ["description"]);
+  assert.deepEqual(ast.loc.start, { line: 1, column: 0 });
 });
 
 test("AST ルートは Document、子は Paragraph > Str", () => {
