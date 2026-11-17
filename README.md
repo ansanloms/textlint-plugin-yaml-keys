@@ -10,8 +10,8 @@ npm には publish せず、GitHub のタグを git 依存で参照する。
 
 textlint の `Processor` プラグインとして動作する。`preProcess` で YAML をパースし、
 指定キーにマッチするスカラ値を `Str` ノードとして持つ AST
-(`Document > Paragraph > Str`) を組み立てる。これにより textlint の各ルールが
-YAML の値テキストに対して働く。
+を組み立てる。既定では値を Markdown として解釈した AST (`Document > Paragraph > Str` など) になり、`markdown: false` の場合は
+`Document > Paragraph > Str` だけの AST になる。これにより textlint の各ルールが YAML の値テキストに対して働く。既定ではインラインコード、コードブロック、Html などの Markdown の要素はチェック対象から外れる (`markdown` オプションの節を参照)。
 
 対応拡張子は `.yaml` / `.yml`。
 
@@ -33,6 +33,41 @@ YAML の値テキストに対して働く。
     末尾改行は含めない。textlint の fix が行頭の空白を消して YAML を壊さない
     ようにするため。
 - quoted scalar (`"..."`): fix の安全性を保証できないため除外する。
+
+## `markdown` オプション
+
+既定は `true` で、抽出した値を Markdown として解釈して AST を組み立てる。`false` にすると値をプレーンテキストとして扱い、行ごとの Str だけを組み立てる。
+
+- インラインコードとコードブロックは、`.md` と同じくチェック対象から外れる。ルールが `--fix` でコードの中身を書き換えることもない。
+- コードの前後のスペースを見るルール (`ja-space-around-code` など) が適用される。
+- `1. foo` のような値はリストとして解釈される。引用 (`>`) やリストのマーカーは Str に含めない。
+- block scalar のインデントは除いて解釈する。Str の range は源文上の位置を指す。
+- Markdown のパースには `@textlint/markdown-to-ast` を使う。版は textlint の版に合わせる。
+
+プレーンテキストの値を Markdown として読むと、`<...>` は Html、`1. ` で始まる行は List、`*` や `_` は強調として解釈される。これらの部分はチェック対象から外れる。この解釈で値が書き換わることはない。抽出するキーの中にこうした値がある場合は `markdown: false` を指定する。このオプションは `keys` に指定した全てのキーに一括で適用され、キーごとには切り替えられない。
+
+```js
+module.exports = {
+  plugins: {
+    "@ansanloms/textlint-plugin-yaml-keys": {
+      keys: ["description"],
+    },
+  },
+};
+```
+
+プレーンテキストとして扱う場合:
+
+```js
+module.exports = {
+  plugins: {
+    "@ansanloms/textlint-plugin-yaml-keys": {
+      keys: ["description"],
+      markdown: false,
+    },
+  },
+};
+```
 
 ## 利用
 

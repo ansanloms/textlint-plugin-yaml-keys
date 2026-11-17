@@ -1,3 +1,4 @@
+import { parse as parseMarkdown } from "@textlint/markdown-to-ast";
 import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
 import type { Node, Pair } from "yaml";
 
@@ -11,6 +12,7 @@ interface KeyMatcher {
 
 interface PluginOptions {
   keys?: string[];
+  markdown?: boolean;
 }
 
 interface Loc {
@@ -29,8 +31,21 @@ interface TxtNode {
 
 type CollectedStr = TxtNode & { value: string };
 
-// 1 つの scalar から得た Str 群 (block scalar は行ごとに複数になる)。
-type CollectedItem = CollectedStr[];
+// 源文上の位置への対応表を持つ、markdown として解釈する前のテキスト。
+// text は scalar の値 (block scalar はインデントを除いたもの)。
+// map は text 上の offset を源文上の offset へ写す。
+interface MarkdownSource {
+  text: string;
+  map: (d: number) => number;
+  mapEnd: (d: number) => number;
+}
+
+// 1 つの scalar から得た Str 群 (block scalar は行ごとに複数になる) と、
+// markdown オプション用の対応表。
+interface CollectedItem {
+  strs: CollectedStr[];
+  md: MarkdownSource;
+}
 
 // textlint の loc.column は 0 始まり。yaml の linePos().col は 1 始まりなので 1 引く (issue #9)。
 const createLoc = (lineCounter: LineCounter, start: number, end: number): Loc => {
@@ -56,6 +71,58 @@ const createStr = (
     range: [start, end],
     loc: createLoc(lineCounter, start, end),
   };
+};
+
+// offset が行頭 (その行の先頭から offset までが空白・タブ・">" だけ) かどうか。
+const atLineStart = (source: string, offset: number): boolean => {
+  if (offset === 0) {
+    return true;
+  }
+  const lineHead = source.slice(source.lastIndexOf("\n", offset - 1) + 1, offset);
+  return /^[ \t>]*$/.test(lineHead);
+};
+
+// 源文の [start, end) を行ごとの Str に分割する。
+// 各 Str の range は行頭の空白・タブと行末の "\r" を除いた区間で、空行は捨てる。
+// - 行頭の空白: range に含めると、jtf-style 等の fix が行頭の空白を消して yaml を壊す。
+// - markdown 有効時 (markdown = true) は、行頭で始まる区間だけ行頭の空白と引用の ">" を除く。
+//   対象は Str 内の改行の直後で始まる行 (継続行) と、源文上で行頭から区間の開始までが
+//   空白・タブ・">" だけの先頭区間 (hard break の次の行など)。
+//   継続行の ">" は Str の range に含まれて返るため、除かないと fix が引用を壊す。
+//   行の途中で始まる先頭区間 (inline code の直後など) は、前後の語との間の空白を
+//   Str に残すためそのまま採る。
+// - 行末の "\r": CRLF の行終端なので含めない。含めると行末への fix が \r と \n の間に入り、
+//   行構造を壊す。空行判定でも空白として扱う。
+const createLineStrs = (
+  start: number,
+  end: number,
+  lineCounter: LineCounter,
+  source: string,
+  markdown: boolean,
+): CollectedStr[] => {
+  const strs: CollectedStr[] = [];
+  let lineStart = start;
+  let first = true;
+  for (const line of source.slice(start, end).split("\n")) {
+    let lineEnd = line.length;
+    while (lineEnd > 0 && line[lineEnd - 1] === "\r") {
+      lineEnd--;
+    }
+    let lead = 0;
+    if (!markdown) {
+      while (lead < lineEnd && (line[lead] === " " || line[lead] === "\t")) {
+        lead++;
+      }
+    } else if (!first || atLineStart(source, start)) {
+      lead = /^(?:[ \t]*>)*[ \t]*/.exec(line.slice(0, lineEnd))![0].length;
+    }
+    first = false;
+    if (lead < lineEnd) {
+      strs.push(createStr(lineStart + lead, lineStart + lineEnd, lineCounter, source));
+    }
+    lineStart += line.length + 1;
+  }
+  return strs;
 };
 
 // 隣り合う子の間に隙間があれば Break で埋める。
@@ -87,7 +154,7 @@ const fillGaps = (children: TxtNode[], lineCounter: LineCounter, source: string)
 interface BlockScalarToken {
   type: string;
   source: string;
-  props: { offset: number; source: string }[];
+  props: { type?: string; offset: number; source: string }[];
 }
 
 const parseKeyPath = (pathStr: string): KeyMatcher => {
@@ -148,6 +215,105 @@ const matchesAt = (matcher: KeyMatcher, currentPath: string[]): boolean => {
   return true;
 };
 
+// block scalar の本体からインデントを除いたテキストと、源文への対応表を作る。
+// インデント幅は、header に indentation indicator があれば親のインデント + その数字、
+// 無ければ最初の空でない行の先頭空白数。行ごとに min(インデント幅, その行の先頭空白数) を除く。
+// 行末の "\r" は行終端なので text に含めない。
+const createBlockMarkdownSource = (
+  srcToken: BlockScalarToken & { indent?: number },
+  bodyStart: number,
+  body: string,
+): MarkdownSource => {
+  const lines = body.split("\n").map((l) => l.replace(/\r+$/, ""));
+  // コメント (`| # see 9`) の数字を拾わないよう、header token だけから読む。
+  const header = srcToken.props
+    .filter((p) => p.type === "block-scalar-header")
+    .map((p) => p.source)
+    .join("");
+  const indicator = /[1-9]/.exec(header.replace(/^[|>]/, ""));
+  let indent: number;
+  if (indicator) {
+    indent = (srcToken.indent ?? 0) + Number(indicator[0]);
+  } else {
+    const first = lines.find((l) => l.trim().length > 0) ?? "";
+    indent = first.length - first.trimStart().length;
+  }
+  const dStart: number[] = [];
+  const oStart: number[] = [];
+  const out: string[] = [];
+  let d = 0;
+  let o = bodyStart;
+  const raws = body.split("\n");
+  lines.forEach((line, i) => {
+    let c = 0;
+    while (c < indent && line[c] === " ") {
+      c++;
+    }
+    const content = line.slice(c);
+    dStart.push(d);
+    oStart.push(o + c);
+    out.push(content);
+    d += content.length + 1;
+    o += raws[i].length + 1;
+  });
+  const map = (x: number): number => {
+    for (let k = dStart.length - 1; k >= 0; k--) {
+      if (x >= dStart[k]) {
+        return oStart[k] + (x - dStart[k]);
+      }
+    }
+    return bodyStart;
+  };
+  // 終端 offset は、行の境界で次の行の先頭へ飛ばないよう直前の文字から写す。
+  const mapEnd = (x: number): number => (x > 0 ? map(x - 1) + 1 : map(0));
+  return { text: out.join("\n"), map, mapEnd };
+};
+
+// markdown-to-ast の node を、源文上の range / loc を持つ node へ変換する。
+// Str は PR 共通の規則 (行ごと・先頭空白と行末 \r を除く) で分割する。
+const convertMarkdownNode = (
+  node: MarkdownNode,
+  md: MarkdownSource,
+  lineCounter: LineCounter,
+  source: string,
+): TxtNode[] => {
+  const start = md.map(node.range[0]);
+  const end = md.mapEnd(node.range[1]);
+  if (node.type === "Str") {
+    return createLineStrs(start, end, lineCounter, source, true);
+  }
+  const converted: TxtNode & Record<string, unknown> = {
+    type: node.type,
+    raw: source.slice(start, end),
+    range: [start, end],
+    loc: createLoc(lineCounter, start, end),
+  };
+  if (node.children) {
+    const kids = node.children.flatMap((c) => convertMarkdownNode(c, md, lineCounter, source));
+    converted.children = fillGaps(kids, lineCounter, source);
+  }
+  // Str 以外は markdown-to-ast の属性 (depth / url / alt / lang 等) をそのまま引き継ぐ。
+  // 位置系 (range / loc / raw / position) は源文基準で作り直すので除く。
+  // value は Code / CodeBlock / Html のような末端 node のものだけ残す。
+  for (const [key, val] of Object.entries(node)) {
+    if (["type", "raw", "range", "loc", "position", "children"].includes(key)) {
+      continue;
+    }
+    if (key === "value" && node.children) {
+      continue;
+    }
+    converted[key] = val;
+  }
+  return [converted];
+};
+
+interface MarkdownNode {
+  type: string;
+  range: [number, number];
+  children?: MarkdownNode[];
+  [key: string]: unknown;
+}
+
 const walk = (
   node: Node | null,
   currentPath: string[],
@@ -185,10 +351,17 @@ const walk = (
             //   yaml を壊すため。末尾改行は block scalar の closing として構文上の意味を
             //   持つため value/range から除外し、fix の対象外にする。
             // - quoted scalar 等の不一致ケース: range が引用符を含み value と一致しないため除外。
-            const strs: CollectedStr[] = [];
+            let strs: CollectedStr[] = [];
+            let md: MarkdownSource | null = null;
             const sourceSlice = source.slice(valueNode.range[0], valueNode.range[1]);
             if (sourceSlice === valueNode.value) {
-              strs.push(createStr(valueNode.range[0], valueNode.range[1], lineCounter, source));
+              const offset = valueNode.range[0];
+              strs.push(createStr(offset, valueNode.range[1], lineCounter, source));
+              md = {
+                text: valueNode.value,
+                map: (d) => offset + d,
+                mapEnd: (d) => offset + d,
+              };
             } else {
               const srcToken = (valueNode as unknown as { srcToken?: BlockScalarToken }).srcToken;
               if (
@@ -204,27 +377,18 @@ const walk = (
                 while (body.endsWith("\n") || body.endsWith("\r")) {
                   body = body.slice(0, -1);
                 }
-                let lineStart = bodyStart;
-                for (const line of body.split("\n")) {
-                  // CRLF の "\r" は行終端なので Str に含めない。含めると行末への fix が
-                  // \r と \n の間に入り、行構造を壊す。空行判定でも空白として扱う。
-                  let end = line.length;
-                  while (end > 0 && line[end - 1] === "\r") {
-                    end--;
-                  }
-                  let lead = 0;
-                  while (lead < end && (line[lead] === " " || line[lead] === "\t")) {
-                    lead++;
-                  }
-                  if (lead < end) {
-                    strs.push(createStr(lineStart + lead, lineStart + end, lineCounter, source));
-                  }
-                  lineStart += line.length + 1;
-                }
+                strs = createLineStrs(
+                  bodyStart,
+                  bodyStart + body.length,
+                  lineCounter,
+                  source,
+                  false,
+                );
+                md = createBlockMarkdownSource(srcToken, bodyStart, body);
               }
             }
-            if (strs.length > 0) {
-              collected.push(strs);
+            if (strs.length > 0 && md) {
+              collected.push({ strs, md });
             }
           }
         }
@@ -242,9 +406,11 @@ const walk = (
 
 class YamlKeysProcessor {
   private keys: string[];
+  private markdown: boolean;
 
   constructor(options: PluginOptions = {}) {
     this.keys = options.keys ?? [];
+    this.markdown = options.markdown ?? true;
   }
 
   availableExtensions(): string[] {
@@ -253,6 +419,7 @@ class YamlKeysProcessor {
 
   processor(_ext: string) {
     const matchers = this.keys.map(parseKeyPath);
+    const markdown = this.markdown;
     return {
       preProcess: (text: string, _filePath?: string) => {
         const lineCounter = new LineCounter();
@@ -264,17 +431,25 @@ class YamlKeysProcessor {
         if (doc.contents) {
           walk(doc.contents as Node, [], matchers, lineCounter, collected, text);
         }
-        const children: TxtNode[] = collected.map((strs) => {
-          const kids = fillGaps(strs, lineCounter, text);
-          const range: [number, number] = [kids[0].range[0], kids[kids.length - 1].range[1]];
-          return {
-            type: "Paragraph",
-            children: kids,
-            raw: text.slice(range[0], range[1]),
-            range,
-            loc: createLoc(lineCounter, range[0], range[1]),
-          };
-        });
+        // markdown: true では scalar の値を markdown として解釈し、得た node 群を
+        // そのまま Document の子にする (scalar ごとの Paragraph で包まない)。
+        const children: TxtNode[] = markdown
+          ? collected.flatMap(({ md }) =>
+              (parseMarkdown(md.text).children as unknown as MarkdownNode[]).flatMap((c) =>
+                convertMarkdownNode(c, md, lineCounter, text),
+              ),
+            )
+          : collected.map(({ strs }) => {
+              const kids = fillGaps(strs, lineCounter, text);
+              const range: [number, number] = [kids[0].range[0], kids[kids.length - 1].range[1]];
+              return {
+                type: "Paragraph",
+                children: kids,
+                raw: text.slice(range[0], range[1]),
+                range,
+                loc: createLoc(lineCounter, range[0], range[1]),
+              };
+            });
         const document: TxtNode = {
           type: "Document",
           children,

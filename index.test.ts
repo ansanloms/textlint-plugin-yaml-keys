@@ -22,7 +22,7 @@ interface Ast {
 }
 
 function preProcess(text: string, keys?: string[]): Ast {
-  const p = new Processor(keys ? { keys } : {});
+  const p = new Processor(keys ? { keys, markdown: false } : { markdown: false });
   return p.processor(".yaml").preProcess(text) as unknown as Ast;
 }
 
@@ -207,3 +207,234 @@ test("AST ルートは Document、子は Paragraph > Str", () => {
   assert.deepEqual(ast.children[0].type, "Paragraph");
   assert.deepEqual(ast.children[0].children[0].type, "Str");
 });
+
+// ---- markdown: true ----
+
+interface MdNode {
+  type: string;
+  value?: string;
+  raw: string;
+  range: [number, number];
+  children?: MdNode[];
+}
+
+function mdAst(text: string, keys: string[] = ["description"]): MdNode {
+  const p = new Processor({ keys, markdown: true });
+  return p.processor(".yaml").preProcess(text) as unknown as MdNode;
+}
+
+function collectNodes(node: MdNode, type: string): MdNode[] {
+  return [
+    ...(node.type === type ? [node] : []),
+    ...(node.children ?? []).flatMap((c) => collectNodes(c, type)),
+  ];
+}
+
+function slice(text: string, n: MdNode): string {
+  return text.slice(n.range[0], n.range[1]);
+}
+
+function assertStrInvariants(text: string, ast: MdNode): void {
+  for (const s of collectNodes(ast, "Str")) {
+    const value = s.value ?? "";
+    assert.equal(slice(text, s), value);
+    assert.equal(s.raw, value);
+    // 行頭 (その行の先頭から Str までがインデントと引用の ">" だけ) の Str は、
+    // 先頭に空白も ">" も持たない。inline code 直後の空白は Str に残る。
+    // range[0] === 0 では lastIndexOf に負数を渡さないよう、行頭として明示的に扱う。
+    const lineHeadStart = s.range[0] === 0 ? 0 : text.lastIndexOf("\n", s.range[0] - 1) + 1;
+    const head = text.slice(lineHeadStart, s.range[0]);
+    if (/^[ \t>]*$/.test(head)) {
+      assert.match(value, /^[^ \t>]/);
+    }
+    assert.ok(!value.includes("\r"));
+    assert.ok(value.length > 0);
+  }
+}
+
+test("markdown 未指定は markdown: true と同じ AST", () => {
+  const text = "description: |-\n  a `b`\n  c\n";
+  const base = new Processor({ keys: ["description"] }).processor(".yaml").preProcess(text);
+  const on = new Processor({ keys: ["description"], markdown: true })
+    .processor(".yaml")
+    .preProcess(text);
+  assert.deepEqual(base, on);
+  assert.equal(collectNodes(base as unknown as MdNode, "Code").length, 1);
+});
+
+test("markdown: false は inline code を分けず、バッククォートを含む 1 つの Str になる", () => {
+  const text = "description: 注文は `GET /orders/{id}` で取得する。\n";
+  const ast = new Processor({ keys: ["description"], markdown: false })
+    .processor(".yaml")
+    .preProcess(text) as unknown as MdNode;
+  const strs = collectNodes(ast, "Str");
+  assert.equal(strs.length, 1);
+  assert.equal(strs[0].value, "注文は `GET /orders/{id}` で取得する。");
+  assert.equal(collectNodes(ast, "Code").length, 0);
+});
+
+test("markdown: インライン code は Str / Code / Str に分かれ、range が源文と一致する", () => {
+  const text = "description: 注文は `GET /orders/{id}` で取得する。\n";
+  const ast = mdAst(text);
+  const para = ast.children![0];
+  assert.equal(para.type, "Paragraph");
+  const kids = para.children!.filter((c) => c.type !== "Break");
+  assert.deepEqual(
+    kids.map((k) => k.type),
+    ["Str", "Code", "Str"],
+  );
+  assert.equal(slice(text, kids[0]), "注文は ");
+  assert.equal(slice(text, kids[1]), "`GET /orders/{id}`");
+  assert.equal(kids[1].value, "GET /orders/{id}");
+  assert.equal(slice(text, kids[2]), " で取得する。");
+  assertStrInvariants(text, ast);
+});
+
+test("markdown: block scalar 内の fenced code と blockquote", () => {
+  const text =
+    "description: |\n  本文。\n\n  ```http\n  GET /orders/{id}\n  ```\n\n  > GET /orders/{id}\n";
+  const ast = mdAst(text);
+  const cb = collectNodes(ast, "CodeBlock")[0];
+  assert.equal(cb.value, "GET /orders/{id}");
+  assert.equal(slice(text, cb), "```http\n  GET /orders/{id}\n  ```");
+  const bq = collectNodes(ast, "BlockQuote")[0];
+  const str = collectNodes(bq, "Str")[0];
+  assert.equal(slice(text, str), "GET /orders/{id}");
+  assert.equal(str.value, "GET /orders/{id}");
+  assertStrInvariants(text, ast);
+});
+
+test("markdown: 複数行 paragraph は行ごとの Str と Break(value は改行のみ)になる", () => {
+  const text = "description: |-\n  one\n  two\n  three\n";
+  const para = mdAst(text).children![0];
+  assert.deepEqual(
+    para.children!.map((c) => [c.type, c.value]),
+    [
+      ["Str", "one"],
+      ["Break", "\n"],
+      ["Str", "two"],
+      ["Break", "\n"],
+      ["Str", "three"],
+    ],
+  );
+  assertStrInvariants(text, mdAst(text));
+});
+
+test("markdown: plain scalar の offset と loc", () => {
+  const text = "a: x\ndescription: hello `c`\n";
+  const ast = mdAst(text);
+  const strs = collectNodes(ast, "Str");
+  assert.equal(strs[0].range[0], text.indexOf("hello"));
+  assert.equal(slice(text, collectNodes(ast, "Code")[0]), "`c`");
+  assert.equal(
+    (strs[0] as unknown as { loc: Str["loc"] }).loc.start.column,
+    "description: ".length,
+  );
+});
+
+test("markdown: 1. foo は List になる", () => {
+  const text = "description: |-\n  1. foo\n  2. bar\n";
+  const ast = mdAst(text);
+  assert.equal(collectNodes(ast, "List").length, 1);
+  assert.deepEqual(
+    collectNodes(ast, "Str").map((s) => s.value),
+    ["foo", "bar"],
+  );
+  assertStrInvariants(text, ast);
+});
+
+test("markdown: |2 (indentation indicator) でも対応する", () => {
+  const text = "- description: |2\n    a `b`\n     indented\n  other: x\n";
+  const ast = mdAst(text);
+  assert.equal(slice(text, collectNodes(ast, "Code")[0]), "`b`");
+  assertStrInvariants(text, ast);
+  assert.deepEqual(
+    collectNodes(ast, "Str").map((s) => s.value),
+    ["a ", "indented"],
+  );
+});
+
+test("markdown: CRLF の block scalar", () => {
+  const text = "description: |-\r\n  a `b`\r\n  c\r\n\r\n  d\r\n";
+  const ast = mdAst(text);
+  assert.equal(slice(text, collectNodes(ast, "Code")[0]), "`b`");
+  assert.deepEqual(
+    collectNodes(ast, "Str").map((s) => s.value),
+    ["a ", "c", "d"],
+  );
+  assertStrInvariants(text, ast);
+});
+
+test("markdown: inline code 直後の Str は先頭の空白を残す", () => {
+  const text = "description: 注文は `GET` で取得する。\n";
+  const ast = mdAst(text);
+  const strs = collectNodes(ast, "Str");
+  assert.deepEqual(
+    strs.map((s) => s.value),
+    ["注文は ", " で取得する。"],
+  );
+  for (const s of strs) {
+    assert.equal(slice(text, s), s.value);
+  }
+});
+
+test("markdown: 複数行 blockquote の継続行で '> ' を Str に含めない", () => {
+  const text = "description: |-\n  > a\n  > b\n  > c\n";
+  const ast = mdAst(text);
+  const strs = collectNodes(ast, "Str");
+  assert.deepEqual(
+    strs.map((s) => s.value),
+    ["a", "b", "c"],
+  );
+  for (const s of strs) {
+    assert.equal(slice(text, s), s.value);
+  }
+});
+
+test("markdown: list 内の blockquote の継続行でも '> ' を Str に含めない", () => {
+  const text = "description: |-\n  - a\n    > b\n    > c\n";
+  const ast = mdAst(text);
+  const strs = collectNodes(ast, "Str");
+  assert.deepEqual(
+    strs.map((s) => s.value),
+    ["a", "b", "c"],
+  );
+  for (const s of strs) {
+    assert.equal(slice(text, s), s.value);
+  }
+});
+
+test("markdown: header コメントの数字を indentation indicator と誤認しない", () => {
+  const text = "description: | # see 9\n  para\n\n      code\n";
+  const ast = mdAst(text);
+  const cb = collectNodes(ast, "CodeBlock");
+  assert.equal(cb.length, 1);
+  assert.equal(cb[0].value, "code");
+});
+
+test("markdown: Image は alt と url を保つ", () => {
+  const text = "description: 図 ![代替](http://example.com/a.png) です\n";
+  const img = collectNodes(mdAst(text), "Image")[0] as MdNode & { alt?: string; url?: string };
+  assert.equal(img.alt, "代替");
+  assert.equal(img.url, "http://example.com/a.png");
+  assert.equal(slice(text, img), "![代替](http://example.com/a.png)");
+});
+
+const lineStartCases: Array<[string, string, string[]]> = [
+  ["引用の継続行に複数の空白", "description: |-\n  > a\n  >   b\n", ["a", "b"]],
+  ["入れ子の引用", "description: |-\n  >> a\n  >>  b\n", ["a", "b"]],
+  ["引用内のリスト", "description: |-\n  > - a\n  >   b\n", ["a", "b"]],
+  ["空白 2 つの hard break の次の字下げ行", "description: |-\n  a  \n     b\n", ["a", "b"]],
+  ["backslash の hard break の次の字下げ行", "description: |-\n  a\\\n     b\n", ["a", "b"]],
+];
+
+for (const [name, text, expected] of lineStartCases) {
+  test(`markdown: ${name}で行頭の空白と ">" を Str に含めない`, () => {
+    const ast = mdAst(text);
+    assert.deepEqual(
+      collectNodes(ast, "Str").map((s) => s.value),
+      expected,
+    );
+    assertStrInvariants(text, ast);
+  });
+}

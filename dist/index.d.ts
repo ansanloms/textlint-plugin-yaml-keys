@@ -1,5 +1,6 @@
 interface PluginOptions {
     keys?: string[];
+    markdown?: boolean;
 }
 interface Loc {
     start: {
@@ -21,6 +22,7 @@ interface TxtNode {
 }
 declare class YamlKeysProcessor {
     private keys;
+    private markdown;
     constructor(options?: PluginOptions);
     availableExtensions(): string[];
     processor(_ext: string): {
