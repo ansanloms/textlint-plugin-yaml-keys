@@ -81,8 +81,11 @@ npm run compile   # tsc で dist/ を生成
 
 Node 24 は開発環境の要件 (`.node-version`) で、配布物は素の ESM なので利用側に Node 24 を要求しない。
 
-examples は `file:..` でこの repo を symlink 参照し、`yaml` をルートの `node_modules`
-から解決する。examples を動かす前にルートで `npm ci` を実行する。
+examples はこの package を依存に載せない。動かすにはルートで `npm ci` を実行し、
+examples で `npm ci && npm install --no-save ..` を実行してこの repo を symlink
+で入れる。`yaml` はルートの `node_modules` から解決する。後から examples で
+`npm install` を実行すると symlink が消えるため、その後は `npm install --no-save ..`
+を再度実行する。
 
 `package.json` の scripts に `build` / `prepare` 等を置かない。npm は git 依存の
 install 時にこれらがあると依存側でビルドを走らせるため。
@@ -90,8 +93,7 @@ install 時にこれらがあると依存側でビルドを走らせるため。
 ### リリース手順
 
 1. `npm version <version> --no-git-tag-version` で `package.json` と
-   `package-lock.json` を更新し、`cd examples && npm install` で
-   `examples/package-lock.json` も更新し、`npm run compile` して全部コミットする。
+   `package-lock.json` を更新し、`npm run compile` して全部コミットする。
 2. 同じ値でタグを打って push する。GitHub Release は作らない。
 
 ## ライセンス

@@ -36,6 +36,7 @@ jobs:
         working-directory: examples
         run: |
           npm ci
+          npm install --no-save ..
           set +e
           npx textlint . -f json > result.json
           rc=$?
