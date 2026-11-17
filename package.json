@@ -1,6 +1,6 @@
 {
   "name": "@ansanloms/textlint-plugin-yaml-keys",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "textlint plugin that lints the values of specified YAML keys",
   "keywords": [
     "textlint",
