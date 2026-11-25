@@ -34,7 +34,7 @@
     "fix": "oxlint --fix && oxfmt"
   },
   "dependencies": {
-    "@textlint/markdown-to-ast": "15.8.0",
+    "@textlint/markdown-to-ast": "16.1.1",
     "yaml": "2.9.1"
   },
   "devDependencies": {
