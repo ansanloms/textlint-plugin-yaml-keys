@@ -1,5 +1,9 @@
 import { parse as parseMarkdown } from "@textlint/markdown-to-ast";
+import { Minimatch } from "minimatch";
+import path from "node:path";
 import { isMap, isScalar, isSeq, LineCounter, parseAllDocuments } from "yaml";
+// 先頭の `./` は照合するパスに現れないので、取り除いてから渡す。
+const compilePatterns = (patterns) => patterns.map((p) => new Minimatch(p.replace(/^(\.\/)+/, ""), { dot: true, nonegate: true, nocomment: true }));
 // textlint の loc.column は 0 始まり。yaml の linePos().col は 1 始まりなので 1 引く (issue #9)。
 const createLoc = (lineCounter, start, end) => {
     const s = lineCounter.linePos(start);
@@ -303,20 +307,44 @@ const walk = (node, currentPath, matchers, lineCounter, collected, source) => {
     }
 };
 class YamlKeysProcessor {
-    keys;
-    markdown;
+    entries;
     constructor(options = {}) {
-        this.keys = options.keys ?? [];
-        this.markdown = options.markdown ?? true;
+        const legacy = options;
+        for (const name of ["keys", "markdown"]) {
+            if (name in legacy) {
+                throw new Error(`トップレベルの \`${name}\` オプションは廃止された。\`files: [{ ${name}: ... }]\` の形で指定すること。`);
+            }
+        }
+        this.entries = (options.files ?? []).map((entry) => ({
+            include: entry.include ? compilePatterns(entry.include) : undefined,
+            exclude: compilePatterns(entry.exclude ?? []),
+            matchers: (entry.keys ?? []).map(parseKeyPath),
+            markdown: entry.markdown ?? true,
+        }));
     }
     availableExtensions() {
         return [".yaml", ".yml"];
     }
+    // 先頭から見て最初に当たった要素を返す。filePath が無いときは include を持たない要素だけが当たる。
+    selectEntry(filePath) {
+        const relative = filePath === undefined
+            ? undefined
+            : path.relative(process.cwd(), path.resolve(filePath)).split(path.sep).join("/");
+        return this.entries.find((entry) => {
+            if (entry.include) {
+                if (relative === undefined || !entry.include.some((mm) => mm.match(relative))) {
+                    return false;
+                }
+            }
+            return relative === undefined || !entry.exclude.some((mm) => mm.match(relative));
+        });
+    }
     processor(_ext) {
-        const matchers = this.keys.map(parseKeyPath);
-        const markdown = this.markdown;
         return {
-            preProcess: (text, _filePath) => {
+            preProcess: (text, filePath) => {
+                const entry = this.selectEntry(filePath);
+                const matchers = entry?.matchers ?? [];
+                const markdown = entry?.markdown ?? true;
                 const lineCounter = new LineCounter();
                 // `---` 区切りの複数ドキュメントを全て検査する。LineCounter と collected は共有する。
                 const docs = parseAllDocuments(text, {

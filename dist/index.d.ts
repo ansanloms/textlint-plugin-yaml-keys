@@ -1,6 +1,11 @@
-interface PluginOptions {
+interface FileEntry {
+    include?: string[];
+    exclude?: string[];
     keys?: string[];
     markdown?: boolean;
+}
+interface PluginOptions {
+    files?: FileEntry[];
 }
 interface Loc {
     start: {
@@ -21,12 +26,12 @@ interface TxtNode {
     children?: TxtNode[];
 }
 declare class YamlKeysProcessor {
-    private keys;
-    private markdown;
+    private entries;
     constructor(options?: PluginOptions);
     availableExtensions(): string[];
+    private selectEntry;
     processor(_ext: string): {
-        preProcess: (text: string, _filePath?: string) => TxtNode;
+        preProcess: (text: string, filePath?: string) => TxtNode;
         postProcess: (messages: unknown[], filePath?: string) => {
             messages: unknown[];
             filePath: string;

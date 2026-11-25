@@ -1,4 +1,6 @@
 import { parse as parseMarkdown } from "@textlint/markdown-to-ast";
+import { Minimatch } from "minimatch";
+import path from "node:path";
 import { isMap, isScalar, isSeq, LineCounter, parseAllDocuments } from "yaml";
 import type { Node, Pair } from "yaml";
 
@@ -10,10 +12,29 @@ interface KeyMatcher {
   pathString: string;
 }
 
-interface PluginOptions {
+interface FileEntry {
+  include?: string[];
+  exclude?: string[];
   keys?: string[];
   markdown?: boolean;
 }
+
+interface PluginOptions {
+  files?: FileEntry[];
+}
+
+interface CompiledEntry {
+  include?: Minimatch[];
+  exclude: Minimatch[];
+  matchers: KeyMatcher[];
+  markdown: boolean;
+}
+
+// 先頭の `./` は照合するパスに現れないので、取り除いてから渡す。
+const compilePatterns = (patterns: string[]): Minimatch[] =>
+  patterns.map(
+    (p) => new Minimatch(p.replace(/^(\.\/)+/, ""), { dot: true, nonegate: true, nocomment: true }),
+  );
 
 interface Loc {
   start: { line: number; column: number };
@@ -398,23 +419,51 @@ const walk = (
 };
 
 class YamlKeysProcessor {
-  private keys: string[];
-  private markdown: boolean;
+  private entries: CompiledEntry[];
 
   constructor(options: PluginOptions = {}) {
-    this.keys = options.keys ?? [];
-    this.markdown = options.markdown ?? true;
+    const legacy = options as Record<string, unknown>;
+    for (const name of ["keys", "markdown"]) {
+      if (name in legacy) {
+        throw new Error(
+          `トップレベルの \`${name}\` オプションは廃止された。\`files: [{ ${name}: ... }]\` の形で指定すること。`,
+        );
+      }
+    }
+    this.entries = (options.files ?? []).map((entry) => ({
+      include: entry.include ? compilePatterns(entry.include) : undefined,
+      exclude: compilePatterns(entry.exclude ?? []),
+      matchers: (entry.keys ?? []).map(parseKeyPath),
+      markdown: entry.markdown ?? true,
+    }));
   }
 
   availableExtensions(): string[] {
     return [".yaml", ".yml"];
   }
 
+  // 先頭から見て最初に当たった要素を返す。filePath が無いときは include を持たない要素だけが当たる。
+  private selectEntry(filePath?: string): CompiledEntry | undefined {
+    const relative =
+      filePath === undefined
+        ? undefined
+        : path.relative(process.cwd(), path.resolve(filePath)).split(path.sep).join("/");
+    return this.entries.find((entry) => {
+      if (entry.include) {
+        if (relative === undefined || !entry.include.some((mm) => mm.match(relative))) {
+          return false;
+        }
+      }
+      return relative === undefined || !entry.exclude.some((mm) => mm.match(relative));
+    });
+  }
+
   processor(_ext: string) {
-    const matchers = this.keys.map(parseKeyPath);
-    const markdown = this.markdown;
     return {
-      preProcess: (text: string, _filePath?: string) => {
+      preProcess: (text: string, filePath?: string) => {
+        const entry = this.selectEntry(filePath);
+        const matchers = entry?.matchers ?? [];
+        const markdown = entry?.markdown ?? true;
         const lineCounter = new LineCounter();
         // `---` 区切りの複数ドキュメントを全て検査する。LineCounter と collected は共有する。
         const docs = parseAllDocuments(text, {
