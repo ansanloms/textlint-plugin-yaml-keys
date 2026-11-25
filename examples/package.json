@@ -6,7 +6,7 @@
     "fix": "textlint . --fix"
   },
   "devDependencies": {
-    "textlint": "15.8.0",
+    "textlint": "16.1.0",
     "textlint-rule-no-todo": "2.0.1"
   }
 }
