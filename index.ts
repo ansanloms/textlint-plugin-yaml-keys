@@ -1,5 +1,5 @@
 import { parse as parseMarkdown } from "@textlint/markdown-to-ast";
-import { isMap, isScalar, isSeq, LineCounter, parseDocument } from "yaml";
+import { isMap, isScalar, isSeq, LineCounter, parseAllDocuments } from "yaml";
 import type { Node, Pair } from "yaml";
 
 type SegmentMatcher = { type: "key"; name: string } | { type: "anyKey" } | { type: "arrayItem" };
@@ -336,60 +336,53 @@ const walk = (
             : "";
       const valueNode = pair.value as Node | null;
       const newPath = [...currentPath, keyName];
-      for (const m of matchers) {
-        if (matchesAt(m, newPath)) {
-          if (isScalar(valueNode) && typeof valueNode.value === "string" && valueNode.range) {
-            // textlint の report index と fix の絶対 range は、Str.range[0] + 相対 index を
-            // 源文全体に対して解決して得られる (node.value / raw は位置計算に使われない)。
-            // ルールは getSource(node) = 源文.slice(range) を読むため、
-            // 全ての Str で source.slice(range) === value が成り立つ必要がある。
-            // 成り立たないと、置換が源文上の誤位置にマップされ yaml 構造を壊す。
-            // - plain scalar: range と value が一致するのでそのまま採用。
-            // - block scalar (|- など): srcToken から本体の offset と本体 source を取り、
-            //   行ごとに Str へ分割する。各 Str の range は行頭のインデントを除いた区間とする。
-            //   インデントを range に含めると、jtf-style 等の fix が行頭の空白を消して
-            //   yaml を壊すため。末尾改行は block scalar の closing として構文上の意味を
-            //   持つため value/range から除外し、fix の対象外にする。
-            // - quoted scalar 等の不一致ケース: range が引用符を含み value と一致しないため除外。
-            let strs: CollectedStr[] = [];
-            let md: MarkdownSource | null = null;
-            const sourceSlice = source.slice(valueNode.range[0], valueNode.range[1]);
-            if (sourceSlice === valueNode.value) {
-              const offset = valueNode.range[0];
-              strs.push(createStr(offset, valueNode.range[1], lineCounter, source));
-              md = {
-                text: valueNode.value,
-                map: (d) => offset + d,
-                mapEnd: (d) => offset + d,
-              };
-            } else {
-              const srcToken = (valueNode as unknown as { srcToken?: BlockScalarToken }).srcToken;
-              if (
-                srcToken &&
-                srcToken.type === "block-scalar" &&
-                Array.isArray(srcToken.props) &&
-                srcToken.props.length > 0 &&
-                typeof srcToken.source === "string"
-              ) {
-                const lastProp = srcToken.props[srcToken.props.length - 1];
-                const bodyStart = lastProp.offset + lastProp.source.length;
-                let body = srcToken.source;
-                while (body.endsWith("\n") || body.endsWith("\r")) {
-                  body = body.slice(0, -1);
-                }
-                strs = createLineStrs(
-                  bodyStart,
-                  bodyStart + body.length,
-                  lineCounter,
-                  source,
-                  false,
-                );
-                md = createBlockMarkdownSource(srcToken, bodyStart, body);
+      // 複数の matcher が同じパスに当たっても、値は 1 回だけ収集する。
+      if (matchers.some((m) => matchesAt(m, newPath))) {
+        if (isScalar(valueNode) && typeof valueNode.value === "string" && valueNode.range) {
+          // textlint の report index と fix の絶対 range は、Str.range[0] + 相対 index を
+          // 源文全体に対して解決して得られる (node.value / raw は位置計算に使われない)。
+          // ルールは getSource(node) = 源文.slice(range) を読むため、
+          // 全ての Str で source.slice(range) === value が成り立つ必要がある。
+          // 成り立たないと、置換が源文上の誤位置にマップされ yaml 構造を壊す。
+          // - plain scalar: range と value が一致するのでそのまま採用。
+          // - block scalar (|- など): srcToken から本体の offset と本体 source を取り、
+          //   行ごとに Str へ分割する。各 Str の range は行頭のインデントを除いた区間とする。
+          //   インデントを range に含めると、jtf-style 等の fix が行頭の空白を消して
+          //   yaml を壊すため。末尾改行は block scalar の closing として構文上の意味を
+          //   持つため value/range から除外し、fix の対象外にする。
+          // - quoted scalar 等の不一致ケース: range が引用符を含み value と一致しないため除外。
+          let strs: CollectedStr[] = [];
+          let md: MarkdownSource | null = null;
+          const sourceSlice = source.slice(valueNode.range[0], valueNode.range[1]);
+          if (sourceSlice === valueNode.value) {
+            const offset = valueNode.range[0];
+            strs.push(createStr(offset, valueNode.range[1], lineCounter, source));
+            md = {
+              text: valueNode.value,
+              map: (d) => offset + d,
+              mapEnd: (d) => offset + d,
+            };
+          } else {
+            const srcToken = (valueNode as unknown as { srcToken?: BlockScalarToken }).srcToken;
+            if (
+              srcToken &&
+              srcToken.type === "block-scalar" &&
+              Array.isArray(srcToken.props) &&
+              srcToken.props.length > 0 &&
+              typeof srcToken.source === "string"
+            ) {
+              const lastProp = srcToken.props[srcToken.props.length - 1];
+              const bodyStart = lastProp.offset + lastProp.source.length;
+              let body = srcToken.source;
+              while (body.endsWith("\n") || body.endsWith("\r")) {
+                body = body.slice(0, -1);
               }
+              strs = createLineStrs(bodyStart, bodyStart + body.length, lineCounter, source, false);
+              md = createBlockMarkdownSource(srcToken, bodyStart, body);
             }
-            if (strs.length > 0 && md) {
-              collected.push({ strs, md });
-            }
+          }
+          if (strs.length > 0 && md) {
+            collected.push({ strs, md });
           }
         }
       }
@@ -423,13 +416,16 @@ class YamlKeysProcessor {
     return {
       preProcess: (text: string, _filePath?: string) => {
         const lineCounter = new LineCounter();
-        const doc = parseDocument(text, {
+        // `---` 区切りの複数ドキュメントを全て検査する。LineCounter と collected は共有する。
+        const docs = parseAllDocuments(text, {
           lineCounter,
           keepSourceTokens: true,
         });
         const collected: CollectedItem[] = [];
-        if (doc.contents) {
-          walk(doc.contents as Node, [], matchers, lineCounter, collected, text);
+        for (const doc of docs) {
+          if (doc.contents) {
+            walk(doc.contents as Node, [], matchers, lineCounter, collected, text);
+          }
         }
         // markdown: true では scalar の値を markdown として解釈し、得た node 群を
         // そのまま Document の子にする (scalar ごとの Paragraph で包まない)。

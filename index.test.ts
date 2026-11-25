@@ -438,3 +438,84 @@ for (const [name, text, expected] of lineStartCases) {
     assertStrInvariants(text, ast);
   });
 }
+
+// ---- 重複マッチ (#32) と複数ドキュメント (#33) ----
+
+test("同じパスに複数の keys パターンが当たっても 1 件だけ収集する", () => {
+  const text = "a:\n  description: x\n";
+  assert.deepEqual(values(text, ["description", "a.description"]), ["x"]);
+  assert.equal(preProcess(text, ["description", "a.description"]).children.length, 1);
+});
+
+test("markdown: true でも重複マッチで Document の子が重複しない", () => {
+  const text = "a:\n  description: x\n";
+  const ast = mdAst(text, ["description", "a.description"]);
+  assert.equal(ast.children?.length, 1);
+  assert.deepEqual(
+    collectNodes(ast, "Str").map((s) => s.value),
+    ["x"],
+  );
+});
+
+test("複数ドキュメントの全てから抽出する", () => {
+  assert.deepEqual(values("description: a\n---\ndescription: b", ["description"]), ["a", "b"]);
+});
+
+test("2 つ目のドキュメントの plain scalar は全体基準の range と行番号を持つ", () => {
+  const text = "description: a\n---\ndescription: b\n";
+  const it = items(text, ["description"])[1];
+  assert.equal(it.value, "b");
+  assert.equal(text.slice(it.range[0], it.range[1]), "b");
+  assert.equal(it.loc.start.line, 3);
+});
+
+test("2 つ目のドキュメントの block scalar は全体基準の range と行番号を持つ", () => {
+  const text = "description: a\n---\ndescription: |-\n  line one\n  line two\n";
+  const kids = preProcess(text, ["description"]).children[1].children.filter(
+    (c) => c.type === "Str",
+  );
+  assert.deepEqual(
+    kids.map((s) => s.value),
+    ["line one", "line two"],
+  );
+  for (const s of kids) {
+    assert.equal(text.slice(s.range[0], s.range[1]), s.value);
+  }
+  assert.deepEqual(
+    kids.map((s) => s.loc.start.line),
+    [4, 5],
+  );
+});
+
+test("空入力とコメントだけの入力は例外を投げず 0 件", () => {
+  assert.deepEqual(values("", ["description"]), []);
+  assert.deepEqual(values("# only comment\n", ["description"]), []);
+});
+
+test("markdown: true で 2 つ目のドキュメントの block scalar も全体基準の range と行番号を持つ", () => {
+  const text = "description: first\n---\ndescription: |-\n  - item\n  - other\n";
+  const ast = mdAst(text);
+  const strs = collectNodes(ast, "Str");
+  assert.deepEqual(
+    strs.map((s) => s.value),
+    ["first", "item", "other"],
+  );
+  assertStrInvariants(text, ast);
+  const second = strs.filter((s) => s.value !== "first") as unknown as Array<{
+    value: string;
+    loc: { start: { line: number } };
+  }>;
+  assert.deepEqual(
+    second.map((s) => s.loc.start.line),
+    [4, 5],
+  );
+});
+
+test("contents が null のドキュメントを含む入力は例外を投げず 0 件", () => {
+  assert.deepEqual(values("---\n", ["description"]), []);
+  assert.deepEqual(values("---\n---\n", ["description"]), []);
+});
+
+test("空ドキュメントの後のドキュメントからも抽出する", () => {
+  assert.deepEqual(values("---\n---\ndescription: a\n", ["description"]), ["a"]);
+});
