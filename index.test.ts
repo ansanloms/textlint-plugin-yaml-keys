@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 import plugin from "./index.ts";
 
 const { Processor } = plugin;
@@ -22,7 +23,7 @@ interface Ast {
 }
 
 function preProcess(text: string, keys?: string[]): Ast {
-  const p = new Processor(keys ? { keys, markdown: false } : { markdown: false });
+  const p = new Processor({ files: [{ keys: keys ?? [], markdown: false }] });
   return p.processor(".yaml").preProcess(text) as unknown as Ast;
 }
 
@@ -219,7 +220,7 @@ interface MdNode {
 }
 
 function mdAst(text: string, keys: string[] = ["description"]): MdNode {
-  const p = new Processor({ keys, markdown: true });
+  const p = new Processor({ files: [{ keys, markdown: true }] });
   return p.processor(".yaml").preProcess(text) as unknown as MdNode;
 }
 
@@ -254,8 +255,10 @@ function assertStrInvariants(text: string, ast: MdNode): void {
 
 test("markdown 未指定は markdown: true と同じ AST", () => {
   const text = "description: |-\n  a `b`\n  c\n";
-  const base = new Processor({ keys: ["description"] }).processor(".yaml").preProcess(text);
-  const on = new Processor({ keys: ["description"], markdown: true })
+  const base = new Processor({ files: [{ keys: ["description"] }] })
+    .processor(".yaml")
+    .preProcess(text);
+  const on = new Processor({ files: [{ keys: ["description"], markdown: true }] })
     .processor(".yaml")
     .preProcess(text);
   assert.deepEqual(base, on);
@@ -264,7 +267,7 @@ test("markdown 未指定は markdown: true と同じ AST", () => {
 
 test("markdown: false は inline code を分けず、バッククォートを含む 1 つの Str になる", () => {
   const text = "description: 注文は `GET /orders/{id}` で取得する。\n";
-  const ast = new Processor({ keys: ["description"], markdown: false })
+  const ast = new Processor({ files: [{ keys: ["description"], markdown: false }] })
     .processor(".yaml")
     .preProcess(text) as unknown as MdNode;
   const strs = collectNodes(ast, "Str");
@@ -518,4 +521,122 @@ test("contents が null のドキュメントを含む入力は例外を投げ�
 
 test("空ドキュメントの後のドキュメントからも抽出する", () => {
   assert.deepEqual(values("---\n---\ndescription: a\n", ["description"]), ["a"]);
+});
+
+// files オプション
+
+const abs = (rel: string): string => path.join(process.cwd(), rel);
+
+interface DocLike {
+  type: string;
+  children: unknown[];
+  raw: string;
+}
+
+function run(
+  options: ConstructorParameters<typeof Processor>[0],
+  text: string,
+  filePath?: string,
+): DocLike {
+  return new Processor(options).processor(".yaml").preProcess(text, filePath) as DocLike;
+}
+
+function strValues(doc: DocLike): string[] {
+  return collectNodes(doc as unknown as MdNode, "Str").map((s) => s.value ?? "");
+}
+
+test("トップレベルの keys は例外", () => {
+  assert.throws(() => new Processor({ keys: ["description"] } as never), /keys/);
+});
+
+test("トップレベルの markdown は例外", () => {
+  assert.throws(() => new Processor({ markdown: false } as never), /markdown/);
+});
+
+test("files 省略と files: [] は抽出 0 件", () => {
+  const text = "description: a\n";
+  assert.deepEqual(strValues(run({}, text, abs("a.yaml"))), []);
+  assert.deepEqual(strValues(run({ files: [] }, text, abs("a.yaml"))), []);
+});
+
+test("include 省略の要素はどのパスにも当たる", () => {
+  const options = { files: [{ keys: ["description"] }] };
+  assert.deepEqual(strValues(run(options, "description: a\n", abs("x/y/z.yaml"))), ["a"]);
+});
+
+test("include に一致するパスは抽出し、一致しないパスは空の Document", () => {
+  const options = { files: [{ include: ["api/**"], keys: ["description"] }] };
+  const text = "description: a\n";
+  assert.deepEqual(strValues(run(options, text, abs("api/a.yaml"))), ["a"]);
+  const miss = run(options, text, abs("other/a.yaml"));
+  assert.equal(miss.type, "Document");
+  assert.deepEqual(miss.children, []);
+  assert.equal(miss.raw, text);
+});
+
+test("dot: ドット始まりのディレクトリに ** が一致する", () => {
+  const options = { files: [{ include: ["**/*.yml"], keys: ["description"] }] };
+  assert.deepEqual(strValues(run(options, "description: a\n", abs(".github/workflows/ci.yml"))), [
+    "a",
+  ]);
+});
+
+test("exclude に一致するパスは後ろの要素に落ちる", () => {
+  const options = {
+    files: [{ exclude: ["vendor/**"], keys: ["description"] }, { keys: ["summary"] }],
+  };
+  const text = "description: a\nsummary: b\n";
+  assert.deepEqual(strValues(run(options, text, abs("src/a.yaml"))), ["a"]);
+  assert.deepEqual(strValues(run(options, text, abs("vendor/a.yaml"))), ["b"]);
+});
+
+test("2 つの要素に当たるパスは先の要素の keys だけで抽出する", () => {
+  const options = {
+    files: [{ keys: ["description"] }, { keys: ["summary"] }],
+  };
+  assert.deepEqual(strValues(run(options, "description: a\nsummary: b\n", abs("a.yaml"))), ["a"]);
+});
+
+test("要素ごとの markdown が効く", () => {
+  const text = "description: a `b`\n";
+  const off = run({ files: [{ keys: ["description"], markdown: false }] }, text, abs("a.yaml"));
+  const on = run({ files: [{ keys: ["description"], markdown: true }] }, text, abs("a.yaml"));
+  assert.notDeepEqual(off, on);
+  assert.equal(collectNodes(off as unknown as MdNode, "Code").length, 0);
+  assert.equal(collectNodes(on as unknown as MdNode, "Code").length, 1);
+});
+
+test("filePath が undefined: include 付きは当たらず、include 無しは当たる", () => {
+  const text = "description: a\n";
+  assert.deepEqual(
+    strValues(run({ files: [{ include: ["**"], keys: ["description"] }] }, text)),
+    [],
+  );
+  assert.deepEqual(strValues(run({ files: [{ exclude: ["**"], keys: ["description"] }] }, text)), [
+    "a",
+  ]);
+});
+
+test("相対パスの filePath は cwd 基準で照合される", () => {
+  const options = { files: [{ include: ["api/*.yaml"], keys: ["description"] }] };
+  assert.deepEqual(strValues(run(options, "description: a\n", "api/a.yaml")), ["a"]);
+  assert.deepEqual(strValues(run(options, "description: a\n", "./api/a.yaml")), ["a"]);
+});
+
+test("パターン先頭の ./ は無視される", () => {
+  const options = { files: [{ include: ["./api/*.yaml"], keys: ["description"] }] };
+  assert.deepEqual(strValues(run(options, "description: a\n", abs("api/a.yaml"))), ["a"]);
+});
+
+test("include: [] はどのファイルにも当たらない", () => {
+  const options = { files: [{ include: [], keys: ["description"] }] };
+  assert.deepEqual(strValues(run(options, "description: a\n", abs("a.yaml"))), []);
+});
+
+test("先頭が ! のパターンは否定として働かない", () => {
+  const options = { files: [{ include: ["!a.yaml"], keys: ["description"] }] };
+  const text = "description: a\n";
+  assert.deepEqual(strValues(run(options, text, abs("a.yaml"))), []);
+  assert.deepEqual(strValues(run(options, text, abs("b.yaml"))), []);
+  assert.deepEqual(strValues(run(options, text, abs("!a.yaml"))), ["a"]);
 });

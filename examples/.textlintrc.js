@@ -1,7 +1,7 @@
 module.exports = {
   plugins: {
     "@ansanloms/textlint-plugin-yaml-keys": {
-      keys: ["description"],
+      files: [{ keys: ["description"] }],
     },
   },
   filters: {},
